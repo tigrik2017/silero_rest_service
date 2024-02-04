@@ -1,2 +1,5 @@
 /silero_model.pt
 /test.wav
+/venv/**
+**/__pycache__/**
+/models/**

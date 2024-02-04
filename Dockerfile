@@ -31,10 +31,10 @@ WORKDIR /home/python
 COPY ./requirements.txt ./requirements.txt
 RUN --mount=type=cache,target=/home/python/.cache,uid=1001,gid=1001 pip install -r ./requirements.txt
 
-COPY run_webapi.py ./run_webapi.py
+COPY src ./src
 
 COPY --link --from=silero-downloader /home/downloader/models/silero_model.pt ./silero_model.pt
 
 EXPOSE 5010
 
-ENTRYPOINT ["python", "run_webapi.py"]
+ENTRYPOINT ["python", ".src/main.py"]

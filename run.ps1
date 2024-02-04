@@ -1,3 +1,3 @@
 .\venv\Scripts\activate
-python ./run_webapi.py
+python ./src/main.py
 deactivate
