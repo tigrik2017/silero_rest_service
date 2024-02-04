@@ -1,37 +1,60 @@
 
 # ----------
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from starlette.responses import Response
+from enum import Enum
 import uvicorn
 import multiprocessing
+import torch
 
 app = FastAPI()
 
 version = "1.0"
 
-model = None
+class ModelName(str, Enum):
+    v4ru = "v4_ru.pt"
+    v31ru = "v3_1_ru.pt"
+
+class SampleRate(str, Enum):
+    bit8000 = 8000,
+    bit24000 = 24000,
+    bit48000 = 48000
+    
+class Speakrs(str, Enum):
+    aidar = "aidar"
+    baya = "baya"
+    kseniya = "kseniya"
+    xenia = "xenia"
+    eugene = "eugene"
+    random = "random"
+
+_device = torch.device('cpu')
+_model = None
+_currentModel = None
+
+def load_model(model_name: ModelName):
+    global _model, _device, _currentModel
+    if _currentModel != model_name:
+        _currentModel = model_name
+        modelurl = 'https://models.silero.ai/models/tts/ru/' + model_name.value
+
+        import os
+        torch.set_num_threads(1)
+        local_file = model_name.value
+
+        if not os.path.isfile(local_file):
+            print("Downloading Silero model...")
+            torch.hub.download_url_to_file(modelurl, local_file)
+
+        _model = torch.package.PackageImporter(local_file).load_pickle("tts_models", "model")
+        _model.to(_device)
+        print(f"Model {model_name} loaded")
+
 
 @app.on_event("startup")
 async def startup_event():
-    global model
-    modelurl = 'https://models.silero.ai/models/tts/ru/v3_1_ru.pt'
-
-    import os
-    import torch
-
-    device = torch.device('cpu')
-    torch.set_num_threads(1)
-    local_file = 'silero_model.pt'
-
-    if not os.path.isfile(local_file):
-        print("Downloading Silero model...")
-        torch.hub.download_url_to_file(modelurl,
-                                       local_file)
-
-
-    model = torch.package.PackageImporter(local_file).load_pickle("tts_models", "model")
-    model.to(device)
+    load_model(ModelName.v4ru)
 
 
 @app.get(
@@ -50,30 +73,37 @@ async def startup_event():
     # https://github.com/tiangolo/fastapi/issues/3258
     response_class=Response
 )
-async def getwav(text_to_speech:str, speaker:str="xenia", sample_rate:int=24000, put_accent:int = 1, put_yo:int = 1):
+async def getwav(
+    text_to_speech: str = Query(..., description="Текст для озвучки"), #обязательный параметр
+    model_name: ModelName = Query(..., description="Выбор модели"),
+    speaker: Speakrs = Query(default=Speakrs.xenia, description="Спикеры"),
+    sample_rate: SampleRate = Query(default=SampleRate.bit24000, description="Выходной битрейт"),
+    put_accent: bool = Query(default=True, description="Простановка акцентов в тексте"),
+    put_yo: bool = Query(default=True, description="Простановка 'ё' в тексте")
+):
     """
-       Return WAV file with rendered text
-
-       :param str text_to_speech: Текст для озвучки
-
-       :param str speaker: One of speakers name
-
-       :param int sample_rate: Sample rate to generation
-
-       :param int put_accent: 1/0, 1 - простановка акцентов в тексте
-
-       :param int put_yo: 1/0, 1 - простановка Ё в тексте
-
+       Return WAV file with rendered text\n
+       :param str text_to_speech: Текст для озвучки\n
+       :param str speaker: One of speakers name\n
+       :param int sample_rate: Sample rate to generation\n
+       :param int put_accent: 1/0, 1 - простановка акцентов в тексте\n
+       :param int put_yo: 1/0, 1 - простановка Ё в тексте\n
        :return: WAV file
-       """
+    """
+    
+    if (model_name != _currentModel):
+        load_model(model_name)
+    
     import os
 
     wavfile = "temp.wav"
-    path = model.save_wav(text=text_to_speech,
-                               speaker=speaker,
-                               put_accent=(put_accent==1),
-                               put_yo=( put_yo==1),
-                               sample_rate=sample_rate)
+    path = _model.save_wav(
+        text=text_to_speech,
+        speaker=speaker.value,
+        put_accent=(put_accent==1),
+        put_yo=( put_yo==1),
+        sample_rate=sample_rate.value
+    )
 
     # перемещаем wav на новое место
     # if os.path.exists(wavfile):
